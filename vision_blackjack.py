@@ -9,6 +9,8 @@ Porting in Python script della logica del notebook `card_recognition_model.ipynb
 Prerequisiti:
 - `config.py` con `USE_VISION_RECOGNITION=True` e percorsi modello/label corretti.
 - File modello/label presenti (default: `dataset/models/card_classifier.keras`, `dataset/models/card_labels.txt`).
+
+MODIFICA: supporto diretto IP Webcam se `PHONE_CAMERA_URL` è configurata.
 """
 
 from __future__ import annotations
@@ -37,10 +39,18 @@ LABEL_PATHS = [
 IMAGE_ROOT = Path("dataset/sim_gioco")
 IMG_HEIGHT, IMG_WIDTH = cp.IMG_HEIGHT, cp.IMG_WIDTH  # 160x114
 
-# Se True, usa la sorgente video (webcam) invece dello scorrimento immagini
+# Se True, usa la sorgente video (webcam o stream) invece dello scorrimento immagini
 USE_VIDEO = True
-VIDEO_SOURCE = 0
+# Legge la sorgente video da config
+try:
+    from config import PHONE_CAMERA_URL, WEBCAM_INDEX, PHONE_CAMERA_INDEX
+except Exception:
+    PHONE_CAMERA_URL = ""
+    WEBCAM_INDEX = 0
+    PHONE_CAMERA_INDEX = None
 
+# Numero massimo di indici webcam da scansionare
+MAX_CAMERA_SCAN = 10
 
 # Mapping da label del dataset a rank/suit di gioco
 RANK_MAP = {
@@ -65,13 +75,11 @@ SUIT_MAP = {
     "picche": "♠️",
 }
 
-
 def first_existing(paths: List[Path]) -> Path | None:
     for p in paths:
         if p.exists():
             return p
     return None
-
 
 def load_label_map(labels_path: Path) -> Dict[int, str]:
     mapping: Dict[int, str] = {}
@@ -82,7 +90,6 @@ def load_label_map(labels_path: Path) -> Dict[int, str]:
                 idx = int(parts[0])
                 mapping[idx] = parts[1]
     return mapping
-
 
 def to_game_label(raw_label: str) -> str:
     """
@@ -101,16 +108,13 @@ def to_game_label(raw_label: str) -> str:
         return f"{rank}{suit}"
     return raw_label
 
-
 def map_labels(labels: List[str]) -> List[str]:
     """Applica la conversione rank/suit -> emoji per un elenco di label raw."""
     return [to_game_label(lbl) for lbl in labels]
 
-
 def preprocess_card(card_bgr: np.ndarray) -> np.ndarray:
     """Usa preprocessing condiviso: binario + flatten."""
     return cp.card_to_vector(card_bgr, (IMG_HEIGHT, IMG_WIDTH))
-
 
 def find_card_boxes(frame_bgr: np.ndarray) -> List[Tuple[int, int, int, int]]:
     """
@@ -127,7 +131,6 @@ def find_card_boxes(frame_bgr: np.ndarray) -> List[Tuple[int, int, int, int]]:
     )
     boxes.sort(key=lambda b: (b[1], b[0]))
     return boxes
-
 
 def predict_frame(frame_bgr: np.ndarray, model, idx_to_label: Dict[int, str]):
     """
@@ -168,13 +171,11 @@ def predict_frame(frame_bgr: np.ndarray, model, idx_to_label: Dict[int, str]):
         probs.append(prob)
     return boxes, raw_labels, probs, positions
 
-
 def rotate_if_vertical(frame: np.ndarray) -> np.ndarray:
     """Ruota l'immagine se è orientata verticalmente (più alta che larga)."""
     if frame.shape[0] > frame.shape[1]:
         return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
     return frame
-
 
 def list_images(root: Path) -> List[Path]:
     exts = {".jpg", ".jpeg", ".png"}
@@ -183,7 +184,6 @@ def list_images(root: Path) -> List[Path]:
         if p.suffix.lower() in exts and p.is_file():
             imgs.append(p)
     return imgs
-
 
 def load_and_resize(path: Path) -> np.ndarray | None:
     frame_orig = cv2.imread(str(path))
@@ -198,6 +198,89 @@ def load_and_resize(path: Path) -> np.ndarray | None:
         return cv2.resize(frame_orig, (new_w, new_h), interpolation=cv2.INTER_AREA)
     return frame_orig
 
+def scan_video_sources() -> List[dict]:
+    """
+    Scansiona le sorgenti video disponibili (indici 0..MAX_CAMERA_SCAN-1).
+    Restituisce una lista di dict con 'index', 'width', 'height', 'name'.
+    """
+    sources: List[dict] = []
+    for i in range(MAX_CAMERA_SCAN):
+        cap = cv2.VideoCapture(i, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            name = f"Camera {i}"
+            sources.append({"index": i, "width": w, "height": h, "name": name})
+            cap.release()
+    return sources
+
+def select_video_source() -> int | str | None:
+    """
+    Stampa le sorgenti video disponibili e chiede all'utente di sceglierne una.
+    Restituisce l'indice (int) o l'URL (str) scelto, oppure None se nessuna è disponibile.
+    """
+    print("\n" + "=" * 60)
+    print("  SORGENTI VIDEO DISPONIBILI")
+    print("=" * 60)
+
+    sources = scan_video_sources()
+
+    if not sources:
+        print("  Nessuna sorgente video trovata!")
+        print("=" * 60)
+        return None
+
+    for i, src in enumerate(sources):
+        tag = ""
+        if PHONE_CAMERA_INDEX is not None and src["index"] == PHONE_CAMERA_INDEX:
+            tag = " [TELEFONO USB - config]"
+        elif src["index"] == WEBCAM_INDEX:
+            tag = " [WEBCAM - config]"
+        print(f"  [{i}] {src['name']}  ({src['width']}x{src['height']}){tag}")
+
+    # Aggiungi opzione URL se configurato
+    url_option = None
+    if PHONE_CAMERA_URL:
+        url_option = len(sources)
+        print(f"  [{url_option}] Telefono via rete: {PHONE_CAMERA_URL}")
+
+    print("=" * 60)
+
+    # Determina sorgente di default
+    default_idx = 0
+    if PHONE_CAMERA_INDEX is not None:
+        for i, src in enumerate(sources):
+            if src["index"] == PHONE_CAMERA_INDEX:
+                default_idx = i
+                break
+    else:
+        for i, src in enumerate(sources):
+            if src["index"] == WEBCAM_INDEX:
+                default_idx = i
+                break
+
+    max_option = len(sources) - 1 + (1 if url_option is not None else 0)
+    while True:
+        try:
+            raw = input(f"  Scegli sorgente [0-{max_option}] (default={default_idx}): ").strip()
+            if raw == "":
+                choice = default_idx
+            else:
+                choice = int(raw)
+            if 0 <= choice <= max_option:
+                break
+            print(f"  Inserisci un numero tra 0 e {max_option}.")
+        except ValueError:
+            print("  Input non valido. Inserisci un numero.")
+
+    if url_option is not None and choice == url_option:
+        print(f"\n  -> Selezionata sorgente: Telefono via rete ({PHONE_CAMERA_URL})")
+        return PHONE_CAMERA_URL
+
+    selected = sources[choice]
+    print(f"\n  -> Selezionata sorgente: {selected['name']} ({selected['width']}x{selected['height']})")
+    print("=" * 60 + "\n")
+    return selected["index"]
 
 def main() -> None:
     model_path = first_existing(MODEL_PATHS)
@@ -213,10 +296,22 @@ def main() -> None:
 
     print(f"Modello: {model_path}")
     print(f"Labels: {labels_path}")
-    if not USE_VIDEO:
-        print(f"Immagini trovate: {len(images)} (A/D per navigare)")
+
+    # -------------------------------------------------------
+    # MODIFICA: supporto IP Webcam diretto senza selezione
+    # -------------------------------------------------------
+    video_source = None
+    if USE_VIDEO:
+        if PHONE_CAMERA_URL:
+            print(f"\nUsando IP Webcam configurata: {PHONE_CAMERA_URL}")
+            video_source = PHONE_CAMERA_URL
+        else:
+            video_source = select_video_source()
+            if video_source is None:
+                print("Nessuna sorgente video disponibile. Uscita.")
+                return
     else:
-        print(f"Sorgente video: {VIDEO_SOURCE}")
+        print(f"Immagini trovate: {len(images)} (A/D per navigare)")
 
     knn_bundle = joblib.load(model_path)
     model = knn_bundle["model"]
@@ -231,10 +326,16 @@ def main() -> None:
     frame = None
     cap = None
     if USE_VIDEO:
-        cap = cv2.VideoCapture(VIDEO_SOURCE)
+        cap = cv2.VideoCapture(video_source)
         if not cap.isOpened():
-            print(f"Sorgente video non disponibile: {VIDEO_SOURCE}")
+            if isinstance(video_source, str):
+                print(f"⚠️  Impossibile aprire lo stream IP Webcam: {video_source}")
+                print("   Verifica che l'URL sia corretto e che il telefono sia connesso alla rete.")
+                print("   Formati comuni: http://<ip>:8080/video?android.mjpeg")
+            else:
+                print(f"Sorgente video non disponibile: {video_source}")
             return
+        print("Stream video avviato correttamente.")
     else:
         frame = load_and_resize(images[idx])
         if frame is None:
@@ -246,7 +347,7 @@ def main() -> None:
             if USE_VIDEO:
                 ok, frame = cap.read()
                 if not ok or frame is None:
-                    print("Frame video non valido.")
+                    print("Frame video non valido o stream terminato.")
                     break
             display = frame.copy()
             boxes, raw_labels, probs, positions = predict_frame(display, model, idx_to_label)
@@ -294,7 +395,7 @@ def main() -> None:
                 cv2.LINE_AA,
             )
 
-            text_cmd = "U: send | Q: quit | A/D: prev/next" if not USE_VIDEO else "U: send | Q: quit"
+            text_cmd = "U: send | Q: quit"
             (txt_w, txt_h), _ = cv2.getTextSize(text_cmd, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
             margin = 20
             x_cmd = display.shape[1] - txt_w - margin
@@ -325,7 +426,7 @@ def main() -> None:
                     cv2.LINE_AA,
                 )
 
-            cv2.imshow("Vision (static image)", display)
+            cv2.imshow("Vision (IP Webcam)" if USE_VIDEO and isinstance(video_source, str) else "Vision (static image)", display)
 
             key = cv2.waitKey(30) & 0xFF
             if key == ord("q"):
@@ -368,7 +469,6 @@ def main() -> None:
             cap.release()
         env.close()
         cv2.destroyAllWindows()
-
 
 if __name__ == "__main__":
     main()
