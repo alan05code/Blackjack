@@ -18,11 +18,30 @@ VISION_STATE_PATH = "blackjack_env/tmp/vision_state.json"
 # ============================================================================
 # Configurazione Webcam (solo se USE_VISION_RECOGNITION=True)
 # ============================================================================
+#
+# GUIDA RAPIDA – Come scegliere la sorgente video:
+#
+#   1) WEBCAM DEL LAPTOP (integrata o USB):
+#      - Impostare PHONE_CAMERA_INDEX = None
+#      - Impostare PHONE_CAMERA_URL = ""        (stringa vuota!)
+#      - La webcam usata sarà quella con indice WEBCAM_INDEX (0 = prima disponibile)
+#
+#   2) TELEFONO VIA RETE (app IP Webcam / DroidCam):
+#      - Impostare PHONE_CAMERA_INDEX = None
+#      - Impostare PHONE_CAMERA_URL = "http://<IP_TELEFONO>:<PORTA>/video"
+#
+#   3) TELEFONO VIA CAVO USB (il telefono appare come webcam):
+#      - Impostare PHONE_CAMERA_INDEX = 1  (o 2, dipende dal sistema)
+#      - PHONE_CAMERA_URL verrà ignorato (l'indice ha priorità)
+#
+# ============================================================================
 
-# Indice della webcam da usare (0 = prima webcam disponibile)
+# Indice della webcam da usare (0 = prima webcam disponibile).
+# Questo valore viene utilizzato SOLO se sia PHONE_CAMERA_INDEX che
+# PHONE_CAMERA_URL sono disabilitati (vedi guida sopra).
 WEBCAM_INDEX = 0
 
-# Risoluzione webcam (None = default)
+# Risoluzione webcam (None = default della webcam)
 WEBCAM_WIDTH = None
 WEBCAM_HEIGHT = None
 
@@ -33,8 +52,12 @@ PHONE_CAMERA_INDEX = None
 
 # URL della telecamera del telefono via rete (es. http://192.168.1.10:8080/video)
 # Usato solo se PHONE_CAMERA_INDEX è None.
-# Lasciare stringa vuota per usare la webcam locale definita da WEBCAM_INDEX.
+#
+# >>> PER USARE LA WEBCAM DEL LAPTOP: lasciare stringa VUOTA ("") <<<
+#
 PHONE_CAMERA_URL = "http://10.126.70.122:8080/video?android.mjpeg"
+# PHONE_CAMERA_URL = ""  # <-- decommentare questa riga (e commentare quella sopra)
+#                        #     per usare la webcam integrata del laptop
 
 # ============================================================================
 # Configurazione Gioco
