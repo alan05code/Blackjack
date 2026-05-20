@@ -28,6 +28,10 @@ CARD_MAX_AREA_RATIO: float = 0.90
 CARD_MIN_AREA_ABS: int = 300_000
 CARD_MAX_AREA_ABS: int = 700_000
 
+# Filtro contorni
+CARD_THRESHOLD: int = 180
+CARD_MIN_CONTOUR_AREA: int = 1000
+
 
 # ----------------------------
 # Parsing etichette dataset
@@ -55,13 +59,11 @@ def parse_card_label(path: Path) -> Tuple[Optional[Dict], Optional[str]]:
 # Step 1: maschera bianca
 # ----------------------------
 def create_white_mask(image: np.ndarray) -> np.ndarray:
-    """Maschera robusta (gray + Otsu + close/open + dilatazione)."""
+    """Maschera bianca (gray + soglia fissa + close/open + dilatazione)."""
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray_blur = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    _, mask = cv2.threshold(gray_blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    if np.mean(mask == 255) < 0.1:
-        mask = cv2.bitwise_not(mask)
+    _, mask = cv2.threshold(gray_blur, CARD_THRESHOLD, 255, cv2.THRESH_BINARY)
 
     kernel_close = np.ones((MORPH_KERNEL_SIZE, MORPH_KERNEL_SIZE), np.uint8)
     kernel_open = np.ones((max(3, MORPH_KERNEL_SIZE // 3), max(3, MORPH_KERNEL_SIZE // 3)), np.uint8)
@@ -92,15 +94,17 @@ def split_image_dealer_player(image: np.ndarray) -> Tuple[np.ndarray, np.ndarray
 # ----------------------------
 def find_card_contours(image: np.ndarray) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
     """
-    Trova i contorni delle carte usando la maschera bianca.
+    Trova i contorni delle carte con soglia fissa su grigio + filtro area contorno.
     Ritorna (boxes, mask).
     """
-    mask = create_white_mask(image)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, CARD_THRESHOLD, 255, cv2.THRESH_BINARY)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     boxes: List[Tuple[int, int, int, int]] = []
     for contour in contours:
-        x, y, w, h = cv2.boundingRect(contour)
-        boxes.append((x, y, w, h))
+        if cv2.contourArea(contour) > CARD_MIN_CONTOUR_AREA:
+            x, y, w, h = cv2.boundingRect(contour)
+            boxes.append((x, y, w, h))
     return boxes, mask
 
 
@@ -401,6 +405,8 @@ __all__ = [
     "CARD_MAX_AREA_RATIO",
     "CARD_MIN_AREA_ABS",
     "CARD_MAX_AREA_ABS",
+    "CARD_THRESHOLD",
+    "CARD_MIN_CONTOUR_AREA",
     "parse_card_label",
     "create_white_mask",
     "split_image_dealer_player",

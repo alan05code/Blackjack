@@ -1,3 +1,0 @@
-- driver per fotocamera da telefono
-- ridurre solo con il numero e il seme in alto a sinistra per il modello (ritagli in pixel standard)
-- migliorare lo scontornamento delle carte (alcune non vengono prese bene)
