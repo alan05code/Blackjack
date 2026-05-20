@@ -34,7 +34,7 @@ PHONE_CAMERA_INDEX = None
 # URL della telecamera del telefono via rete (es. http://192.168.1.10:8080/video)
 # Usato solo se PHONE_CAMERA_INDEX è None.
 # Lasciare stringa vuota per usare la webcam locale definita da WEBCAM_INDEX.
-PHONE_CAMERA_URL = "http://10.61.239.97:8080/video?android.mjpeg"
+PHONE_CAMERA_URL = "http://10.126.70.122:8080/video?android.mjpeg"
 
 # ============================================================================
 # Configurazione Gioco
