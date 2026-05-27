@@ -11,8 +11,8 @@ import cv2
 import numpy as np
 
 # Configurazione predefinita allineata a training/inference
-IMG_HEIGHT: int = 256
-IMG_WIDTH: int = 182
+IMG_HEIGHT: int = 160
+IMG_WIDTH: int = 114
 DEFAULT_SIZE: Tuple[int, int] = (IMG_HEIGHT, IMG_WIDTH)  # (h, w)
 
 MORPH_KERNEL_SIZE: int = 7

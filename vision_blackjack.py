@@ -40,9 +40,23 @@ IMAGE_ROOT = Path("dataset/sim_gioco")
 IMG_HEIGHT, IMG_WIDTH = cp.IMG_HEIGHT, cp.IMG_WIDTH  # 160x114
 
 # Colori bounding box (BGR)
-COLOR_FOUND = (0, 165, 255)       # arancione — trovata ma non riconosciuta
-COLOR_RECOGNIZED = (0, 200, 0)    # verde — riconosciuta dal modello
+COLOR_FOUND      = (0, 165, 255)   # arancione — trovata ma non riconosciuta
+COLOR_RED_SUIT   = (0, 0, 220)     # rosso  — riconosciuta, seme rosso (cuori/quadri)
+COLOR_BLACK_SUIT = (220, 100, 0)   # blu    — riconosciuta, seme nero (picche/fiori)
 CONFIDENCE_THRESHOLD = 0.5
+
+RED_SUITS   = {"cuori", "quadri"}    # seme rosso nella label raw
+BLACK_SUITS = {"picche", "fiori"}    # seme nero nella label raw
+
+def suit_color(raw_label: str) -> tuple:
+    """Restituisce il colore BGR in base al seme predetto nella label raw."""
+    tokens = raw_label.lower().replace("-", "_").split("_")
+    for tok in tokens:
+        if tok in RED_SUITS:
+            return COLOR_RED_SUIT
+        if tok in BLACK_SUITS:
+            return COLOR_BLACK_SUIT
+    return COLOR_RED_SUIT  # fallback
 
 # Se True, usa la sorgente video (webcam o stream) invece dello scorrimento immagini
 USE_VIDEO = True
@@ -366,8 +380,12 @@ def main() -> None:
             for (x, y, w, h), lbl, prob in zip(boxes, raw_labels, probs):
                 # prob==0 significa che il modello non supporta predict_proba → tratta come riconosciuta
                 recognized = (prob == 0.0) or (prob >= CONFIDENCE_THRESHOLD)
-                color = COLOR_RECOGNIZED if recognized else COLOR_FOUND
-                label_text = f"{lbl} {prob:.2f}" if recognized else f"? {prob:.2f}"
+                if recognized:
+                    color = suit_color(lbl)
+                    label_text = f"R: {lbl} {prob:.2f}"
+                else:
+                    color = COLOR_FOUND
+                    label_text = f"T: {lbl} {prob:.2f}"
                 cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
                 cv2.putText(
                     display,
@@ -403,12 +421,6 @@ def main() -> None:
                 2,
                 cv2.LINE_AA,
             )
-
-            # Legenda colori
-            cv2.putText(display, "TROVATA", (20, display.shape[0] - 45),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_FOUND, 2, cv2.LINE_AA)
-            cv2.putText(display, "RICONOSCIUTA", (120, display.shape[0] - 45),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_RECOGNIZED, 2, cv2.LINE_AA)
 
             text_cmd = "U: send | Q: quit"
             (txt_w, txt_h), _ = cv2.getTextSize(text_cmd, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
