@@ -151,18 +151,23 @@ class BlackjackRenderer:
     ) -> None:
         start_x = 80
         card_width, card_height = 100, 140
-        overlap = 24
+        gap = 20
+        step = card_width + gap
+        max_width = self.width - start_x - 60
+        n = len(cards)
+        if n > 1 and n * card_width + (n - 1) * gap > max_width:
+            step = max(card_width // 3, (max_width - card_width) // (n - 1))
         label_render = self.small_font.render(label, True, TEXT_PRIMARY)
         surface.blit(label_render, (start_x, top - 40))
         if highlight:
             badge_text, color = highlight
             self._draw_badge(surface, (start_x + 130, top - 50), badge_text, color)
-            glow_rect = pygame.Rect(start_x - 20, top - 20, card_width + overlap * max(len(cards) - 1, 0) + 40, card_height + 40)
+            glow_rect = pygame.Rect(start_x - 20, top - 20, card_width + step * max(n - 1, 0) + 40, card_height + 40)
             glow_surface = pygame.Surface(glow_rect.size, pygame.SRCALPHA)
             pygame.draw.rect(glow_surface, (*color, 50), glow_surface.get_rect(), border_radius=26)
             surface.blit(glow_surface, glow_rect.topleft)
         for idx, card_str in enumerate(cards):
-            x = start_x + idx * overlap
+            x = start_x + idx * step
             rect = pygame.Rect(x, top, card_width, card_height)
             shadow = pygame.Surface((card_width, card_height), pygame.SRCALPHA)
             pygame.draw.rect(shadow, CARD_SHADOW, shadow.get_rect(), border_radius=14)
