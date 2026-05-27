@@ -59,6 +59,8 @@ class BlackjackApp:
         pygame.display.set_caption(
             "Blackjack - Modalità Visione" if self.use_vision_recognition else "Blackjack - Modalità Manuale"
         )
+        self.windowed_size = (self.width, self.height)
+        self.fullscreen = False
         self.screen = pygame.display.set_mode((self.width, self.height))
         self.font = pygame.font.SysFont("arial", 20)
         self.small_font = pygame.font.SysFont("arial", 18)
@@ -114,6 +116,11 @@ class BlackjackApp:
                     running = False
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     self._on_click(event.pos)
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_F11:
+                        self._toggle_fullscreen()
+                    elif event.key == pygame.K_ESCAPE and self.fullscreen:
+                        self._toggle_fullscreen()
 
             if self.use_vision_recognition:
                 self._load_vision_json()
@@ -168,6 +175,23 @@ class BlackjackApp:
             hud.blit(text, (16, y))
             hud.blit(val, (16, y + 12))
         self.screen.blit(hud, panel_rect.topleft)
+
+    def _toggle_fullscreen(self) -> None:
+        self.fullscreen = not self.fullscreen
+        if self.fullscreen:
+            info = pygame.display.Info()
+            self.width = info.current_w
+            self.height = info.current_h
+            self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN)
+        else:
+            self.width, self.height = self.windowed_size
+            self.screen = pygame.display.set_mode((self.width, self.height))
+        self.renderer = BlackjackRenderer(
+            width=self.width,
+            height=self.height,
+            auto_display=False,
+        )
+        self.buttons = self._create_buttons()
 
     def _on_click(self, mouse_pos) -> None:
         for button in self.buttons:
