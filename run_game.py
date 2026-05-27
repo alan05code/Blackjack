@@ -191,14 +191,30 @@ class BlackjackApp:
 
     def _toggle_fullscreen(self) -> None:
         self.fullscreen = not self.fullscreen
+        caption = (
+            "Blackjack - Modalità Visione" if self.use_vision_recognition else "Blackjack - Modalità Manuale"
+        )
         if self.fullscreen:
             self.windowed_size = (self.width, self.height)
             sizes = pygame.display.get_desktop_sizes()
-            self.width, self.height = sizes[0]
-            self.screen = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME)
+            target_w, target_h = sizes[0]
+            os.environ["SDL_VIDEO_WINDOW_POS"] = "0,0"
+            pygame.display.quit()
+            pygame.display.init()
+            pygame.display.set_caption(caption)
+            self.width, self.height = target_w, target_h
+            self.screen = pygame.display.set_mode(
+                (self.width, self.height), pygame.NOFRAME
+            )
         else:
+            os.environ.pop("SDL_VIDEO_WINDOW_POS", None)
+            pygame.display.quit()
+            pygame.display.init()
+            pygame.display.set_caption(caption)
             self.width, self.height = self.windowed_size
-            self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+            self.screen = pygame.display.set_mode(
+                (self.width, self.height), pygame.RESIZABLE
+            )
         self._rebuild_layout()
 
     def _resize(self, w: int, h: int) -> None:
@@ -312,14 +328,19 @@ class BlackjackApp:
         player_labels = list(data.get("player_hand") or [])
         dealer_labels = list(data.get("dealer_hand") or [])
         status = data.get("status")
-
-        signature = (tuple(player_labels), tuple(dealer_labels), status)
-        if not force and signature == self._vision_state_signature:
-            return False
-        self._vision_state_signature = signature
+        self._vision_state_signature = (tuple(player_labels), tuple(dealer_labels), status)
 
         if player_labels or dealer_labels:
-            info = self.middleware.update_from_labels(player_labels, dealer_labels, render=True)
+            # Reset stato precedente per accettare nuova mano anche se round finito.
+            self.env.game.round_over = False
+            self.last_reward = 0.0
+            try:
+                info = self.middleware.update_from_labels(player_labels, dealer_labels, render=True)
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.status_message = f"Errore vision: {e}"
+                return False
             self.info = info
             self.observation = self._obs_from_info(info)
             self.round_over = bool(info.get("round_over", False))
@@ -329,8 +350,6 @@ class BlackjackApp:
                 self.status_message = "Round concluso (vision)."
             else:
                 self.status_message = info.get("status", self.status_message)
-            if not self.round_over:
-                self.last_reward = 0.0
             print(f"{log_prefix} aggiornamento: player={player_labels} dealer={dealer_labels}")
         else:
             # Nessuna carta: tratta come "in attesa nuova mano"
