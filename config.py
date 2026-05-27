@@ -55,7 +55,7 @@ PHONE_CAMERA_INDEX = None
 #
 # >>> PER USARE LA WEBCAM DEL LAPTOP: lasciare stringa VUOTA ("") <<<
 #
-PHONE_CAMERA_URL = "http://10.126.70.122:8080/video?android.mjpeg"
+# PHONE_CAMERA_URL = "http://10.126.70.122:8080/video?android.mjpeg"
 # PHONE_CAMERA_URL = ""  # <-- decommentare questa riga (e commentare quella sopra)
 #                        #     per usare la webcam integrata del laptop
 

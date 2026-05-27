@@ -10,7 +10,7 @@ import numpy as np
 import json
 import os
 
-from blackjack_env import BlackjackRenderer, GameState, VisionGameMiddleware
+from blackjack_env import BlackjackRenderer, VisionGameMiddleware
 from blackjack_env.BJRL import BlackjackAgent, agent_action
 from blackjack_env.config_loader import create_env_from_config, load_config
 
@@ -22,6 +22,18 @@ BUTTON_SHADOW = (0, 0, 0, 120)
 HUD_PANEL = (0, 0, 0, 140)
 HUD_TEXT = (235, 235, 235)
 HUD_TEXT_MUTED = (185, 185, 185)
+
+EMPTY_INFO = {
+    "player_hand": [],
+    "dealer_hand": [],
+    "player_total": 0,
+    "dealer_total": 0,
+    "usable_ace": 0,
+    "round_over": False,
+    "player_blackjack": False,
+    "dealer_blackjack": False,
+    "status": "",
+}
 
 
 @dataclass
@@ -35,32 +47,30 @@ class BlackjackApp:
     """Loop pygame che utilizza l'ambiente Gym per la logica di gioco."""
 
     def __init__(self) -> None:
-        """Inizializza l'applicazione Blackjack usando solo config.py."""
         pygame.init()
-        
-        # Carica configurazione da config.py
+
         self.config = load_config()
         self.fps = self.config["FPS"]
         self.clock = pygame.time.Clock()
         self.width = self.config["WINDOW_WIDTH"]
         self.height = self.config["WINDOW_HEIGHT"]
         self.use_vision_recognition = self.config["USE_VISION_RECOGNITION"]
-        self.use_ai_decision = False  # modalità AI decisionale disabilitata
 
-        pygame.display.set_caption("Blackjack - Modalità Manuale" if not self.use_ai_decision else "Blackjack - Modalità AI")
+        pygame.display.set_caption(
+            "Blackjack - Modalità Visione" if self.use_vision_recognition else "Blackjack - Modalità Manuale"
+        )
         self.screen = pygame.display.set_mode((self.width, self.height))
         self.font = pygame.font.SysFont("arial", 20)
         self.small_font = pygame.font.SysFont("arial", 18)
         self.tiny_font = pygame.font.SysFont("arial", 16)
-        
-        # Crea ambiente dalla configurazione
+
         self.env = create_env_from_config()
         self.middleware = VisionGameMiddleware(self.env) if self.use_vision_recognition else None
-        self.decision_model = None
         self.agent = self._load_agent()
         self.vision_state_path = self.config.get("VISION_STATE_PATH")
         self._vision_state_mtime: float = 0.0
-        
+        self._vision_state_signature: tuple | None = None
+
         self.renderer = BlackjackRenderer(
             width=self.width,
             height=self.height,
@@ -76,25 +86,11 @@ class BlackjackApp:
         self.last_reward = 0.0
 
         if self.use_vision_recognition:
-            # Nessun reset iniziale: lo stato viene solo dal modello di visione
             self.observation = np.array([0, 0, 0], dtype=np.int32)
-            self.info = {
-                "player_hand": [],
-                "dealer_hand": [],
-                "player_total": 0,
-                "dealer_total": 0,
-                "usable_ace": 0,
-                "round_over": False,
-                "player_blackjack": False,
-                "dealer_blackjack": False,
-                "status": self.status_message,
-            }
+            self.info = {**EMPTY_INFO, "status": self.status_message}
+            self._load_vision_json(force=True, log_prefix="[vision] Stato iniziale")
         else:
             self.observation, self.info = self.env.reset()
-            if self.use_vision_recognition and self.middleware:
-                self.info = self.middleware.last_info() or self.info
-        if self.use_vision_recognition:
-           self._load_vision_json(force=True, log_prefix="[vision] Stato iniziale")
 
     def _create_buttons(self) -> Sequence[Button]:
         button_width, button_height = 160, 45
@@ -120,14 +116,12 @@ class BlackjackApp:
                     self._on_click(event.pos)
 
             if self.use_vision_recognition:
-                self._pull_vision_state()
+                self._load_vision_json()
 
             self._draw()
             pygame.display.flip()
             self.clock.tick(self.fps)
         self.env.close()
-        if self.cap:
-            self.cap.release()
         pygame.quit()
 
     def _draw(self) -> None:
@@ -186,20 +180,10 @@ class BlackjackApp:
 
     def _reset_round(self) -> None:
         if self.use_vision_recognition:
-            # In modalità visione non si resetta il mazzo: si aspetta un nuovo input dal modello
             self.observation = np.array([0, 0, 0], dtype=np.int32)
-            self.info = {
-                "player_hand": [],
-                "dealer_hand": [],
-                "player_total": 0,
-                "dealer_total": 0,
-                "usable_ace": 0,
-                "round_over": False,
-                "player_blackjack": False,
-                "dealer_blackjack": False,
-                "status": "In attesa del modello di visione.",
-            }
+            self.info = {**EMPTY_INFO, "status": "In attesa del modello di visione."}
             self.status_message = self.info["status"]
+            self._vision_state_signature = None
         else:
             self.observation, self.info = self.env.reset()
             self.status_message = "Nuova mano pronta."
@@ -241,32 +225,13 @@ class BlackjackApp:
         else:
             self.status_message = info.get("status", "In corso...")
 
-    def _pull_vision_state(self) -> None:
-        """
-        Aggiorna lo stato usando il middleware di visione.
-
-        Nota: questa funzione assume che una sorgente esterna fornisca frame o label.
-        Personalizza `provide_vision_state` per integrare la tua pipeline (es. notebook).
-        """
-        if not self.middleware:
-            return
-
-        # 1) Prova a leggere da file JSON esterno (vision_state_path)
-        if self._load_vision_json():
-            return
-
     def _obs_from_info(self, info: dict) -> "np.ndarray":
-        import numpy as np
-
         player_sum = info.get("player_total", 0)
-        dealer_upcard = info.get("dealer_total", 0) if info.get("round_over") else info.get("dealer_total", 0)
+        dealer_upcard = info.get("dealer_total", 0)
         usable_ace = int(info.get("usable_ace", 0))
         return np.array([player_sum, dealer_upcard, usable_ace], dtype=np.int32)
 
     def _load_agent(self) -> Optional[BlackjackAgent]:
-        """
-        Carica un agente RL da file policy.npy se disponibile.
-        """
         policy_path = self.config.get("POLICY_PATH", "blackjack_env/model/policy.npy")
         try:
             agent = BlackjackAgent()
@@ -277,9 +242,14 @@ class BlackjackApp:
 
     def _load_vision_json(self, *, force: bool = False, log_prefix: str = "[vision]") -> bool:
         """
-        Legge il file JSON condiviso e aggiorna lo stato se è più recente o se force=True.
+        Legge il file JSON condiviso e aggiorna lo stato se cambiato.
+
+        Confronto duplice: mtime (veloce) e signature dei dati (robusto rispetto a
+        scritture con stessa mtime o riscritture identiche).
         """
-        if not self.vision_state_path or not os.path.exists(self.vision_state_path):
+        if not self.middleware or not self.vision_state_path:
+            return False
+        if not os.path.exists(self.vision_state_path):
             return False
         try:
             mtime = os.path.getmtime(self.vision_state_path)
@@ -287,32 +257,45 @@ class BlackjackApp:
                 return False
             with open(self.vision_state_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            self._vision_state_mtime = mtime
-            player_labels = data.get("player_hand", [])
-            dealer_labels = data.get("dealer_hand", [])
-            status = data.get("status")
-            if player_labels or dealer_labels:
-                info = self.middleware.update_from_labels(player_labels, dealer_labels, render=True)
-                self.info = info
-                self.observation = self._obs_from_info(info)
-                self.round_over = bool(info.get("round_over", False))
-                if status:
-                    self.status_message = status
-                elif self.round_over:
-                    self.status_message = "Round concluso (vision)."
-                else:
-                    self.status_message = info.get("status", self.status_message)
-                if not self.round_over:
-                    self.last_reward = 0.0
-                print(f"{log_prefix} JSON aggiornato: {self.vision_state_path} (player={player_labels}, dealer={dealer_labels}, mtime={mtime})")
-            elif status:
-                self.status_message = status
-                print(f"{log_prefix} JSON senza carte ma con status: {status} (mtime={mtime})")
-            return True
-        except Exception as e:
+        except (OSError, json.JSONDecodeError) as e:
             print(f"{log_prefix} Errore lettura JSON {self.vision_state_path}: {e}")
             return False
-    
+
+        self._vision_state_mtime = mtime
+        player_labels = list(data.get("player_hand") or [])
+        dealer_labels = list(data.get("dealer_hand") or [])
+        status = data.get("status")
+
+        signature = (tuple(player_labels), tuple(dealer_labels), status)
+        if not force and signature == self._vision_state_signature:
+            return False
+        self._vision_state_signature = signature
+
+        if player_labels or dealer_labels:
+            info = self.middleware.update_from_labels(player_labels, dealer_labels, render=True)
+            self.info = info
+            self.observation = self._obs_from_info(info)
+            self.round_over = bool(info.get("round_over", False))
+            if status:
+                self.status_message = status
+            elif self.round_over:
+                self.status_message = "Round concluso (vision)."
+            else:
+                self.status_message = info.get("status", self.status_message)
+            if not self.round_over:
+                self.last_reward = 0.0
+            print(f"{log_prefix} aggiornamento: player={player_labels} dealer={dealer_labels}")
+        else:
+            # Nessuna carta: tratta come "in attesa nuova mano"
+            self.info = {**EMPTY_INFO, "status": status or "In attesa del modello di visione."}
+            self.observation = np.array([0, 0, 0], dtype=np.int32)
+            self.round_over = False
+            self.last_reward = 0.0
+            self.status_message = self.info["status"]
+            print(f"{log_prefix} mani vuote, reset visivo.")
+        return True
+
+
 def main() -> None:
     """Avvia l'applicazione Blackjack usando la configurazione da config.py."""
     app = BlackjackApp()

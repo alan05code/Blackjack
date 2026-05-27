@@ -38,31 +38,14 @@ def load_config() -> dict:
 
 
 def create_env_from_config() -> "BlackjackEnv":
-    """
-    Crea un'istanza di BlackjackEnv basandosi sulla configurazione in config.py.
-
-    Returns:
-        BlackjackEnv configurato secondo le impostazioni.
-
-    Note:
-        Il modello decisionale (se USE_AI_DECISION=True) deve essere gestito
-        esternamente. Vedi run_game.py per un esempio.
-    """
+    """Crea un'istanza di BlackjackEnv dalla configurazione in config.py."""
     from .env import BlackjackEnv
 
     cfg = load_config()
-
-    # Il modello di visione è gestito esternamente (es. vision_from_notebook.py)
-    card_model = None
-
-    # Crea ambiente
-    env = BlackjackEnv(
+    return BlackjackEnv(
         natural_payout=cfg["NATURAL_PAYOUT"],
         num_decks=cfg["NUM_DECKS"],
         dealer_hits_soft_17=cfg["DEALER_HITS_SOFT_17"],
         render_mode=cfg["RENDER_MODE"],
-        card_recognition_model=card_model,
         seed=cfg["RANDOM_SEED"],
     )
-
-    return env

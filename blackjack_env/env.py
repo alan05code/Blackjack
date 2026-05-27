@@ -9,10 +9,6 @@ from gymnasium import Env, spaces
 
 from .game import BlackjackGame
 from .rendering import BlackjackRenderer
-from .vision import (
-    CardRecognitionModel,
-    NoOpCardRecognitionModel,
-)
 
 
 class BlackjackEnv(Env):
@@ -30,24 +26,8 @@ class BlackjackEnv(Env):
         num_decks: int = 1,
         dealer_hits_soft_17: bool = False,
         render_mode: str | None = None,
-        card_recognition_model: CardRecognitionModel | None = None,
         seed: int | None = None,
     ) -> None:
-        """
-        Inizializza l'ambiente Blackjack.
-
-        Args:
-            natural_payout: Payout per blackjack naturale (default 1.5)
-            num_decks: Numero di mazzi nel shoe
-            dealer_hits_soft_17: Se True, dealer pesca su soft 17
-            render_mode: Modalità rendering ("human", "rgb_array", o None)
-            card_recognition_model: Modello per riconoscere carte dal tavolo reale
-            seed: Seed per il generatore random
-
-        Note:
-            Il modello decisionale è esterno e deve essere chiamato separatamente.
-            Vedi example_ai_player.py per un esempio di utilizzo.
-        """
         self.render_mode = render_mode
         self.game = BlackjackGame(
             num_decks=num_decks,
@@ -62,7 +42,6 @@ class BlackjackEnv(Env):
             dtype=np.int32,
         )
         self._renderer: BlackjackRenderer | None = None
-        self.card_recognition_model: CardRecognitionModel = card_recognition_model or NoOpCardRecognitionModel()
         self._latest_info: Dict[str, object] = {}
         self._last_message = "Nuova mano"
         self._auto_resolve = False
@@ -82,39 +61,6 @@ class BlackjackEnv(Env):
         info = self._build_info(reveal=False)
         self._latest_info = info
         return obs, info
-
-    def update_state_from_recognition(self, frame: np.ndarray) -> Dict[str, object]:
-        """
-        Aggiorna lo stato del gioco basandosi sul riconoscimento carte da un frame.
-
-        Args:
-            frame: Frame RGB del tavolo (H, W, 3) da webcam o foto
-
-        Returns:
-            Dict con informazioni sull'aggiornamento e lo stato corrente
-        """
-        recognition_result = self.card_recognition_model.recognize_cards(frame)
-        player_labels = recognition_result.get_player_labels()
-        dealer_labels = recognition_result.get_dealer_labels()
-
-        update_result = self.game.update_hands_from_recognition(player_labels, dealer_labels, validate=True)
-        self._last_message = "Stato aggiornato dal modello di visione." if update_result.get("updated") else "Aggiornamento parziale: verifica le carte rilevate."
-
-        # In modalità visione vogliamo mostrare le carte rilevate; determiniamo se il round è concluso
-        self.game.round_over = self._should_end_round()
-        info = self._build_info(reveal=self.game.round_over)
-        info.update(
-            {
-                "recognition_updated": update_result["updated"],
-                "recognition_errors": update_result.get("errors", []),
-                "recognized_player_cards": player_labels,
-                "recognized_dealer_cards": dealer_labels,
-            }
-        )
-        self._latest_info = info
-        if self.render_mode is not None:
-            self.render()
-        return info
 
     def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, Dict[str, object]]:
         """

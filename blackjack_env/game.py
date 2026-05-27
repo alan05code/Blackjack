@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import random
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Optional, Sequence
 
 RANKS: Sequence[str] = ("A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K")
-SUITS: Sequence[str] = ("♠️", "♥️", "♦️", "♣️")  # Spade, Hearts, Diamonds, Clubs (ASCII only)
+SUITS: Sequence[str] = ("♠️", "♥️", "♦️", "♣️") # Spade, Hearts, Diamonds, Clubs 
+_SUIT_BASE_TO_CANONICAL: Dict[str, str] = {s[0]: s for s in SUITS}
 CARD_VALUES: Dict[str, int] = {
     "A": 11,
     "K": 10,
@@ -38,6 +39,31 @@ class Card:
 
     def label(self) -> str:
         return f"{self.rank}{self.suit}"
+
+
+def parse_card_label(label: str) -> Optional[Card]:
+    """
+    Converte una stringa "RankSuit" in Card, tollerando variazioni unicode del seme.
+
+    Accetta sia la forma con variation selector (es. "A♠️") che senza (es. "A♠").
+    Restituisce None se la label non è valida.
+    """
+    if not label:
+        return None
+    # Prova prima il match esatto con la forma canonica (con VS-16)
+    for suit in SUITS:
+        if label.endswith(suit):
+            rank = label[: -len(suit)]
+            if rank in RANKS:
+                return Card(rank, suit)
+    # Fallback: match con il solo carattere base del seme (senza VS-16)
+    last_char = label[-1]
+    canonical = _SUIT_BASE_TO_CANONICAL.get(last_char)
+    if canonical is not None:
+        rank = label[:-1]
+        if rank in RANKS:
+            return Card(rank, canonical)
+    return None
 
 
 class BlackjackGame:
@@ -100,56 +126,43 @@ class BlackjackGame:
         self, player_cards: List[str], dealer_cards: List[str], validate: bool = True
     ) -> Dict[str, object]:
         """
-        Aggiorna le mani del gioco basandosi sulle carte riconosciute dal modello di visione.
+        Aggiorna le mani del gioco con le carte riconosciute dal modello di visione.
 
         Args:
-            player_cards: Lista di label delle carte del player (es. ["A♠️", "10♥️"])
-            dealer_cards: Lista di label delle carte del dealer
-            validate: Se True, valida che le carte siano nel formato corretto
+            player_cards: Label delle carte del player (es. ["A♠️", "10♥️"])
+            dealer_cards: Label delle carte del dealer
+            validate: Se True, segnala errori per le label non riconosciute.
+                Anche con validate=True le carte valide vengono comunque applicate
+                (aggiornamento parziale): l'unico effetto è la presenza di
+                `errors` nel risultato.
 
         Returns:
-            Dict con informazioni sull'aggiornamento (es. {"updated": True, "errors": []})
-
-        Note:
-            Questo metodo permette di sincronizzare lo stato del gioco con le carte
-            riconosciute dal modello di visione. Le carte vengono convertite da label
-            a oggetti Card e assegnate alle mani corrispondenti.
+            Dict {"updated": bool, "errors": list[str], "partial": bool}.
+            `updated` è True solo se tutte le label sono state riconosciute.
+            `partial` è True se ci sono errori ma almeno una carta è stata applicata.
         """
         errors: List[str] = []
+
+        def _parse_list(labels: List[str], owner: str) -> List[Card]:
+            cards: List[Card] = []
+            for raw in labels:
+                card = parse_card_label(raw)
+                if card is not None:
+                    cards.append(card)
+                elif validate:
+                    errors.append(f"Carta {owner} non riconosciuta: {raw!r}")
+            return cards
+
         try:
-            # Converti label in Card objects
-            player_hand_new: List[Card] = []
-            for label in player_cards:
-                if validate and len(label) < 2:
-                    errors.append(f"Label player non valida: {label}")
-                    continue
-                rank = label[:-2] if len(label) > 2 else label[0]  # Rimuovi emoji (2 caratteri)
-                suit = label[-2:] if len(label) > 2 else label[1] if len(label) > 1 else ""
-                if rank in RANKS and suit in SUITS:
-                    player_hand_new.append(Card(rank, suit))
-                else:
-                    errors.append(f"Carta player non riconosciuta: {label}")
-
-            dealer_hand_new: List[Card] = []
-            for label in dealer_cards:
-                if validate and len(label) < 2:
-                    errors.append(f"Label dealer non valida: {label}")
-                    continue
-                rank = label[:-2] if len(label) > 2 else label[0]
-                suit = label[-2:] if len(label) > 2 else label[1] if len(label) > 1 else ""
-                if rank in RANKS and suit in SUITS:
-                    dealer_hand_new.append(Card(rank, suit))
-                else:
-                    errors.append(f"Carta dealer non riconosciuta: {label}")
-
-            # Aggiorna le mani solo se non ci sono errori o se validate=False
-            if not errors or not validate:
-                self.player_hand = player_hand_new
-                self.dealer_hand = dealer_hand_new
-
-            return {"updated": len(errors) == 0, "errors": errors}
+            self.player_hand = _parse_list(player_cards, "player")
+            self.dealer_hand = _parse_list(dealer_cards, "dealer")
+            return {
+                "updated": not errors,
+                "errors": errors,
+                "partial": bool(errors) and bool(self.player_hand or self.dealer_hand),
+            }
         except Exception as e:
-            return {"updated": False, "errors": [f"Errore durante aggiornamento: {str(e)}"]}
+            return {"updated": False, "errors": [f"Errore durante aggiornamento: {e}"], "partial": False}
 
     def dealer_play(self) -> None:
         self.round_over = True
