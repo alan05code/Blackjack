@@ -58,12 +58,17 @@ class VisionGameMiddleware:
         self.env.game.round_over = self.env._should_end_round()
         info = self.env._build_info(reveal=self.env.game.round_over)
 
-        # Reinietta le carte coperte come placeholder per il rendering.
-        # I totali non cambiano: una carta coperta non viene contata nel punteggio.
-        if player_hidden:
-            info["player_hand"] = list(info.get("player_hand", [])) + [HIDDEN_CARD_TOKEN] * player_hidden
-        if dealer_hidden:
-            info["dealer_hand"] = list(info.get("dealer_hand", [])) + [HIDDEN_CARD_TOKEN] * dealer_hidden
+        # In vision mode il rendering riflette ciò che la camera vede:
+        # tutte le carte note vengono mostrate scoperte; le carte coperte
+        # vengono aggiunte come placeholder "??". La logica round_over
+        # (calcolata sopra) decide quando il dealer ha completato.
+        info["player_hand"] = [c.label() for c in self.env.game.player_hand] + [HIDDEN_CARD_TOKEN] * player_hidden
+        info["dealer_hand"] = [c.label() for c in self.env.game.dealer_hand] + [HIDDEN_CARD_TOKEN] * dealer_hidden
+
+        # Dealer total: visibile sempre dato che le carte note sono scoperte;
+        # se ci sono carte coperte (hole non ancora girata), mostra solo l'upcard.
+        if dealer_hidden > 0 and not self.env.game.round_over:
+            info["dealer_total"] = self.env.game.upcard_value()
 
         info.update(
             {

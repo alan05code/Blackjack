@@ -335,7 +335,7 @@ class BlackjackApp:
             self.env.game.round_over = False
             self.last_reward = 0.0
             try:
-                info = self.middleware.update_from_labels(player_labels, dealer_labels, render=True)
+                info = self.middleware.update_from_labels(player_labels, dealer_labels, render=False)
             except Exception as e:
                 import traceback
                 traceback.print_exc()

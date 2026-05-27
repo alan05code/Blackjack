@@ -177,4 +177,10 @@ class BlackjackEnv(Env):
             return True
         if player_total > 21 or dealer_total > 21:
             return True
+        # Vision mode: dealer past initial deal (3+ cards) or already at stand value (>=17)
+        # implica che il giocatore ha già stato e il dealer ha completato la propria mano.
+        if len(self.game.dealer_hand) >= 3:
+            return True
+        if len(self.game.dealer_hand) >= 2 and dealer_total >= 17:
+            return True
         return False
