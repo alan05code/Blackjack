@@ -231,9 +231,10 @@ class BlackjackGame:
 
     @staticmethod
     def _hand_to_labels(hand: Iterable[Card], hide_second: bool = False) -> List[str]:
+        hand_list = list(hand)
         labels: List[str] = []
-        for idx, card in enumerate(hand):
-            if hide_second and idx == 1:
+        for idx, card in enumerate(hand_list):
+            if hide_second and idx == 1 and len(hand_list) == 2:
                 labels.append("??")
             else:
                 labels.append(card.label())
