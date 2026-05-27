@@ -9,6 +9,17 @@ import pygame
 import numpy as np
 import json
 import os
+import sys
+
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        try:
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 from blackjack_env import BlackjackRenderer, VisionGameMiddleware
 from blackjack_env.BJRL import BlackjackAgent, agent_action
@@ -61,7 +72,7 @@ class BlackjackApp:
         )
         self.windowed_size = (self.width, self.height)
         self.fullscreen = False
-        self.screen = pygame.display.set_mode((self.width, self.height))
+        self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
         self.font = pygame.font.SysFont("arial", 20)
         self.small_font = pygame.font.SysFont("arial", 18)
         self.tiny_font = pygame.font.SysFont("arial", 16)
@@ -121,6 +132,8 @@ class BlackjackApp:
                         self._toggle_fullscreen()
                     elif event.key == pygame.K_ESCAPE and self.fullscreen:
                         self._toggle_fullscreen()
+                elif event.type == pygame.VIDEORESIZE and not self.fullscreen:
+                    self._resize(event.w, event.h)
 
             if self.use_vision_recognition:
                 self._load_vision_json()
@@ -179,13 +192,23 @@ class BlackjackApp:
     def _toggle_fullscreen(self) -> None:
         self.fullscreen = not self.fullscreen
         if self.fullscreen:
-            info = pygame.display.Info()
-            self.width = info.current_w
-            self.height = info.current_h
-            self.screen = pygame.display.set_mode((self.width, self.height), pygame.FULLSCREEN)
+            self.windowed_size = (self.width, self.height)
+            sizes = pygame.display.get_desktop_sizes()
+            self.width, self.height = sizes[0]
+            self.screen = pygame.display.set_mode((self.width, self.height), pygame.NOFRAME)
         else:
             self.width, self.height = self.windowed_size
-            self.screen = pygame.display.set_mode((self.width, self.height))
+            self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+        self._rebuild_layout()
+
+    def _resize(self, w: int, h: int) -> None:
+        self.width = max(640, w)
+        self.height = max(480, h)
+        self.windowed_size = (self.width, self.height)
+        self.screen = pygame.display.set_mode((self.width, self.height), pygame.RESIZABLE)
+        self._rebuild_layout()
+
+    def _rebuild_layout(self) -> None:
         self.renderer = BlackjackRenderer(
             width=self.width,
             height=self.height,
