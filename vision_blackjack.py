@@ -39,6 +39,11 @@ LABEL_PATHS = [
 IMAGE_ROOT = Path("dataset/sim_gioco")
 IMG_HEIGHT, IMG_WIDTH = cp.IMG_HEIGHT, cp.IMG_WIDTH  # 160x114
 
+# Colori bounding box (BGR)
+COLOR_FOUND = (0, 165, 255)       # arancione — trovata ma non riconosciuta
+COLOR_RECOGNIZED = (0, 200, 0)    # verde — riconosciuta dal modello
+CONFIDENCE_THRESHOLD = 0.5
+
 # Se True, usa la sorgente video (webcam o stream) invece dello scorrimento immagini
 USE_VIDEO = True
 # Legge la sorgente video da config
@@ -359,14 +364,18 @@ def main() -> None:
             dealer_labels_send = map_labels(dealer_raw)
 
             for (x, y, w, h), lbl, prob in zip(boxes, raw_labels, probs):
-                cv2.rectangle(display, (x, y), (x + w, y + h), (0, 200, 0), 2)
+                # prob==0 significa che il modello non supporta predict_proba → tratta come riconosciuta
+                recognized = (prob == 0.0) or (prob >= CONFIDENCE_THRESHOLD)
+                color = COLOR_RECOGNIZED if recognized else COLOR_FOUND
+                label_text = f"{lbl} {prob:.2f}" if recognized else f"? {prob:.2f}"
+                cv2.rectangle(display, (x, y), (x + w, y + h), color, 2)
                 cv2.putText(
                     display,
-                    f"{lbl} {prob:.2f}",
+                    label_text,
                     (x, y - 10),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
-                    (0, 200, 0),
+                    color,
                     2,
                     cv2.LINE_AA,
                 )
@@ -394,6 +403,12 @@ def main() -> None:
                 2,
                 cv2.LINE_AA,
             )
+
+            # Legenda colori
+            cv2.putText(display, "TROVATA", (20, display.shape[0] - 45),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_FOUND, 2, cv2.LINE_AA)
+            cv2.putText(display, "RICONOSCIUTA", (120, display.shape[0] - 45),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, COLOR_RECOGNIZED, 2, cv2.LINE_AA)
 
             text_cmd = "U: send | Q: quit"
             (txt_w, txt_h), _ = cv2.getTextSize(text_cmd, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
