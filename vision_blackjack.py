@@ -16,13 +16,12 @@ MODIFICA: supporto diretto IP Webcam se `PHONE_CAMERA_URL` è configurata.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
 import json
 import os
-import time
 import joblib
 
 from blackjack_env import card_preprocessing as cp
@@ -68,16 +67,6 @@ USE_VIDEO = True
 
 # Path del file JSON condiviso letto da run_game.py
 VISION_STATE_PATH = Path("blackjack_env/tmp/vision_state.json")
-
-# Auto-invio: scrivi su JSON ad ogni cambio di carte, senza richiedere il tasto 'u'.
-AUTO_SEND = True
-
-# Intervallo minimo (secondi) fra due scritture identiche / inutili (debounce).
-AUTO_SEND_MIN_INTERVAL = 0.15
-
-# Numero minimo di frame consecutivi con lo stesso set di carte prima di inviare
-# (evita scrittura su falsi positivi del modello).
-AUTO_SEND_STABILITY_FRAMES = 2
 # Legge la sorgente video da config
 try:
     from config import PHONE_CAMERA_URL, WEBCAM_INDEX, PHONE_CAMERA_INDEX
@@ -392,12 +381,6 @@ def main() -> None:
     idx = 0
     frame = None
     cap = None
-
-    # Stato auto-send
-    last_sent_signature: Optional[Tuple[Tuple[str, ...], Tuple[str, ...]]] = None
-    last_sent_time: float = 0.0
-    candidate_signature: Optional[Tuple[Tuple[str, ...], Tuple[str, ...]]] = None
-    candidate_count: int = 0
     if USE_VIDEO:
         cap = cv2.VideoCapture(video_source)
         if not cap.isOpened():
@@ -430,27 +413,6 @@ def main() -> None:
             # Per display usiamo le label raw (no emoji). La conversione a emoji avviene solo all'invio.
             player_labels_send = map_labels(player_raw)
             dealer_labels_send = map_labels(dealer_raw)
-
-            # ----------------------------------------------------------------
-            # Auto-send: scrive sul JSON quando le label sono stabili e cambiate
-            # ----------------------------------------------------------------
-            if AUTO_SEND:
-                signature = (tuple(player_labels_send), tuple(dealer_labels_send))
-                if signature == candidate_signature:
-                    candidate_count += 1
-                else:
-                    candidate_signature = signature
-                    candidate_count = 1
-
-                now = time.monotonic()
-                stable = candidate_count >= AUTO_SEND_STABILITY_FRAMES
-                changed = signature != last_sent_signature
-                debounced = (now - last_sent_time) >= AUTO_SEND_MIN_INTERVAL
-                if stable and changed and debounced:
-                    if write_vision_state(list(signature[0]), list(signature[1])):
-                        last_sent_signature = signature
-                        last_sent_time = now
-                        print(f"[auto-send] player={list(signature[0])} dealer={list(signature[1])}")
 
             for (x, y, w, h), lbl, prob in zip(boxes, raw_labels, probs):
                 # prob==0 significa che il modello non supporta predict_proba → tratta come riconosciuta
@@ -497,7 +459,7 @@ def main() -> None:
                 cv2.LINE_AA,
             )
 
-            text_cmd = ("AUTO + U: force | Q: quit" if AUTO_SEND else "U: send | Q: quit")
+            text_cmd = "U: send | Q: quit"
             (txt_w, txt_h), _ = cv2.getTextSize(text_cmd, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
             margin = 20
             x_cmd = display.shape[1] - txt_w - margin
@@ -537,10 +499,8 @@ def main() -> None:
                 if not player_labels_send and not dealer_labels_send:
                     print("Nessuna carta da inviare.")
                     continue
-                if write_vision_state(player_labels_send, dealer_labels_send, status="Vision manual"):
-                    last_sent_signature = (tuple(player_labels_send), tuple(dealer_labels_send))
-                    last_sent_time = time.monotonic()
-                    print(f"[manual] Stato salvato in {VISION_STATE_PATH}")
+                if write_vision_state(player_labels_send, dealer_labels_send):
+                    print(f"[send] {VISION_STATE_PATH} player={player_labels_send} dealer={dealer_labels_send}")
             if not USE_VIDEO:
                 if key == ord("a"):  # precedente
                     idx = (idx - 1) % len(images)
