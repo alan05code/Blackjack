@@ -36,8 +36,10 @@ class BlackjackRenderer:
         title: str = "Gym Blackjack",
         auto_display: bool = False,
     ) -> None:
-        pygame.init()
-        pygame.font.init()
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.font.get_init():
+            pygame.font.init()
         self.width = width
         self.height = height
         self.title = title

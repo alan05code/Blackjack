@@ -120,6 +120,8 @@ class BlackjackApp:
         return buttons
 
     def run(self) -> None:
+        pygame.event.pump()
+        pygame.event.clear()
         running = True
         while running:
             for event in pygame.event.get():
